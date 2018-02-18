@@ -1,0 +1,126 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4020.6">
+  <POU Name="MAIN" Id="{c8b23abf-759c-4a00-aeab-4c27b9d30cd1}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+
+// Outputs
+Motor : BOOL;
+Valve : BOOL;
+Tank_empty_out : BOOL;
+
+// Inputs
+Container_in_place : BOOL;
+Container_full : BOOL; 
+Tank_empty_in : BOOL;  
+Loading : BOOL; 
+Unloading : BOOL; 
+START : BOOL; 
+STOP : BOOL; 
+EMERGENCY : BOOL;
+Refill : BOOL;	// Input that represents the tank's refill
+
+// Internal Variables
+Count : INT;	// Variable that represent the number of containers that the system processed
+State: INT;		// Variable that represent the number of the state of the system's process
+S1 : BOOL;		// Variable that is TRUE after loading is TRUE, meaning that the container is carried to the tank
+S2 : BOOL;		// Variable that is TRUE after container in place is TRUE, meaning that the container is being fill by the tank
+S3 : BOOL;		// Variable that is TRUE after container full is TRUR, meaning that the container is carried to the unloading point
+RESET : BOOL;	// Variable that is TRUE when TANK EMPTY pass from TRUE TO FALSE.
+
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// IMPLEMENTATION ------------------------------------------------------------------------------
+
+// When EMERGENCY button is pressed, the motor and valve stop and the system does nothing
+IF EMERGENCY = TRUE THEN
+	MOTOR:=FALSE;
+	VALVE:=FALSE;
+ELSE
+	// If the EMERGENCY button is OFF, the system check what is the state that he was before EMERGENCY, and continue the process
+	CASE State OF
+		
+		// If the system is in the State 0, he should wait for the START button to be pressed. If the tank is empty, the system should continue is this state, ignoring the START button.
+		// TANK_EMPTY_IN is normally pressed contact in such a way that it outputs FALSE when sensing water and TRUE when the tank is empty.
+		0: IF TANK_EMPTY_IN = TRUE THEN			
+			RESET := TRUE;
+			START := FALSE;
+		END_IF
+		TANK_EMPTY_OUT := TANK_EMPTY_IN;
+		IF REFILL =TRUE THEN
+			TANK_EMPTY_OUT := FALSE;
+			TANK_EMPTY_IN := FALSE;
+		END_IF
+		// Every time that the tank is not empty, the system should reset the counter. In other words, if the tank was empty and it is now full, it means that he has capacity for 10 new containers.
+		IF START AND NOT TANK_EMPTY_IN = TRUE THEN
+			IF RESET =TRUE THEN
+				COUNT :=0;
+				RESET := FALSE;
+			END_IF
+			State:= State+1;	// If the condition of changing the state is fulfilled, the State variable should increment 1 for the system to jump to the next state
+		END_IF
+		
+		// If the system is in the State 1, he should wait for the LOADING button to be pressed. If the user click on STOP button or if, for some reason, the tank is empty, the system should go to the State 0.
+		1: IF TANK_EMPTY_IN =TRUE  OR STOP =TRUE THEN
+			State := 0;
+			START := FALSE;
+		END_IF 
+		// If the LOADING button is pressed, the motor starts to run and we increment 1 to the State variable to jump to the next State
+		IF Loading = TRUE THEN
+			MOTOR := TRUE;
+			State:= State+1 ;
+			S1 := TRUE; 
+		END_IF
+		
+		// If the system is in the State 2, he should wait for the CONTAINER_IN_PLACE button to be pressed.
+		2: MOTOR:=TRUE;
+		// If that button is pressed, the motor should stop, and the valve must be opened. After that, the state variable should be incremented.
+		IF CONTAINER_IN_PLACE = TRUE THEN
+			MOTOR:= FALSE;
+			S1 :=FALSE;
+			S2 := TRUE;
+			State:= State+1 ; 
+			VALVE:= TRUE;
+		END_IF
+		
+		// If the system is in the State 3, he should wait for the CONTAINER_FULL button to be pressed.
+		3: VALVE:=TRUE;
+		// If that button is pressed, the motor should be ON and the valve closed. If this happens, the counter should increment 1, meaning that the number of filled containers increased
+		IF CONTAINER_FULL = TRUE THEN
+			COUNT := COUNT+1; 
+			VALVE:= FALSE ;
+			S2 := FALSE;
+			S3:=TRUE;
+			CONTAINER_FULL := FALSE;
+			CONTAINER_IN_PLACE := FALSE;
+			MOTOR:= TRUE ; 
+			State:= State+1 ; 
+		END_IF
+		
+		// If the system is in the State 4, he shoul wait for the UNLOADING button to be pressed
+		4:  MOTOR:=TRUE;
+		// If the UNLOADING button is pressed, the system have to check if the counter is bigger or equal than 10 OR if the STOP button was pressed. In that case, the system should go to State 0
+		IF (UNLOADING AND (COUNT >10 OR COUNT = 10)) OR (UNLOADING AND STOP) THEN
+			IF (UNLOADING AND (COUNT >10 OR COUNT = 10)) THEN
+				TANK_EMPTY_OUT := TRUE;
+				TANK_EMPTY_IN := TRUE ;
+			END_IF
+			MOTOR := FALSE;
+			STATE := 0; 
+			S3:=FALSE;
+		ELSE 
+		// If the UNLOADING button was pressed and the counter was lower than 10 or if the STOP button was not pressed, he should go to the State 1 and wait for another container to fill
+		IF  UNLOADING AND COUNT < 10 THEN
+			MOTOR := FALSE;
+			STATE := 1;
+			S3:=FALSE;
+			END_IF	
+		END_IF
+	END_CASE
+	
+END_IF 
+
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
